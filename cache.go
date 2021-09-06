@@ -28,7 +28,7 @@ import (
 // bug is overwritten by tests to cause a test failure.
 var bug = log.Printf
 
-var headerSize = binary.Size(Header{})
+var headerSize = binary.Size(header{})
 
 type Config struct {
 	// Expiry controls how long a block should not be read/written before it is discarded during garbage collection. The expiry is a minimum, the block will remain available until it is actually garbage collected.
@@ -252,7 +252,7 @@ func (c *Cache) readLog(logNumber int, f *os.File, purgeCh <-chan purgeRequest, 
 			*nextPurgeRequest = <-purgeCh
 		}
 		headerOffset := offset
-		var h Header
+		var h header
 		if err := binary.Read(r, binary.LittleEndian, &h); err != nil {
 			if err == io.EOF {
 				return nil
@@ -265,7 +265,7 @@ func (c *Cache) readLog(logNumber int, f *os.File, purgeCh <-chan purgeRequest, 
 			return err
 		}
 		offset += int64(h.FilenameLength)
-		hash, err := hashForWriting(h.HashedHeader, filename, io.LimitReader(r, int64(h.DataSize)))
+		hash, err := hashForWriting(h.hashedHeader, filename, io.LimitReader(r, int64(h.DataSize)))
 		if err != nil {
 			return err
 		}
@@ -279,7 +279,7 @@ func (c *Cache) readLog(logNumber int, f *os.File, purgeCh <-chan purgeRequest, 
 }
 
 // recordDataPosition stores in which log data can be found on disk.
-func (c *Cache) recordDataPosition(f *os.File, offset int64, filename []byte, h Header) {
+func (c *Cache) recordDataPosition(f *os.File, offset int64, filename []byte, h header) {
 	fn := string(filename)
 	cf, ok := c.files[fn]
 	if !ok {
@@ -343,22 +343,22 @@ func timeInBytes(t time.Time) []byte {
 	return buf
 }
 
-// Header is the on-disk header in logs.
-type Header struct {
+// header is the on-disk header in logs.
+type header struct {
 	LastAccess int64
 	Hash       [md5.Size]byte
-	HashedHeader
+	hashedHeader
 }
 
-// HashedHeader is the hashed part of the Header, containing all fields that don't change.
-type HashedHeader struct {
+// hashedHeader is the hashed part of the header, containing all fields that don't change.
+type hashedHeader struct {
 	FilenameLength int32
 	DataSize       int32
 	DataOffset     int64
 }
 
 // hashForWriting hashes the header + filename + data.
-func hashForWriting(hh HashedHeader, filename []byte, data io.Reader) ([]byte, error) {
+func hashForWriting(hh hashedHeader, filename []byte, data io.Reader) ([]byte, error) {
 	mh := md5.New()
 	if err := binary.Write(mh, binary.LittleEndian, hh); err != nil {
 		return nil, err
@@ -405,15 +405,15 @@ func (c *Cache) put(filename []byte, offset int64, buf []byte, lastAccess time.T
 		c.writeLogOffset = 0
 		c.openLogfiles[c.currentWriteLogId] = fh
 	}
-	h := Header{
+	h := header{
 		LastAccess: lastAccess.Unix(),
-		HashedHeader: HashedHeader{
+		hashedHeader: hashedHeader{
 			FilenameLength: int32(len(filename)),
 			DataSize:       int32(len(buf)),
 			DataOffset:     offset,
 		},
 	}
-	hash, err := hashForWriting(h.HashedHeader, filename, bytes.NewReader(buf))
+	hash, err := hashForWriting(h.hashedHeader, filename, bytes.NewReader(buf))
 	if err != nil {
 		return err
 	}
@@ -466,8 +466,8 @@ func (c *Cache) Delete(filename []byte, offset int64, size int) error {
 		}
 		c.purgeLog = fh
 	}
-	h := PurgeHeader{
-		HashedPurgeHeader: HashedPurgeHeader{
+	h := purgeHeader{
+		hashedPurgeHeader: hashedPurgeHeader{
 			LogNumber:      int32(c.currentWriteLogId),
 			LogOffset:      c.writeLogOffset,
 			FilenameLength: int32(len(filename)),
@@ -475,7 +475,7 @@ func (c *Cache) Delete(filename []byte, offset int64, size int) error {
 			DataSize:       int32(size),
 		},
 	}
-	hash, err := hashForPurging(h.HashedPurgeHeader, filename)
+	hash, err := hashForPurging(h.hashedPurgeHeader, filename)
 	if err != nil {
 		return err
 	}
@@ -496,14 +496,14 @@ func (c *Cache) Delete(filename []byte, offset int64, size int) error {
 	return nil
 }
 
-// PurgeHeader is the on-disk header for purge logs (those containing deletes).
-type PurgeHeader struct {
+// purgeHeader is the on-disk header for purge logs (those containing deletes).
+type purgeHeader struct {
 	Hash [md5.Size]byte
-	HashedPurgeHeader
+	hashedPurgeHeader
 }
 
-// HashedPurgeHeader is the hashed part of PurgeHeader.
-type HashedPurgeHeader struct {
+// hashedPurgeHeader is the hashed part of PurgeHeader.
+type hashedPurgeHeader struct {
 	LogOffset      int64
 	LogNumber      int32
 	FilenameLength int32
@@ -511,7 +511,7 @@ type HashedPurgeHeader struct {
 	DataSize       int32
 }
 
-func hashForPurging(hh HashedPurgeHeader, filename []byte) ([]byte, error) {
+func hashForPurging(hh hashedPurgeHeader, filename []byte) ([]byte, error) {
 	mh := md5.New()
 	if err := binary.Write(mh, binary.LittleEndian, hh); err != nil {
 		return nil, err
@@ -642,7 +642,7 @@ func (c *Cache) executePurgeRequest(pr purgeRequest) {
 	cf.ranges.Remove(pr.dataOffset, pr.dataOffset+int64(pr.dataSize))
 }
 
-func createPurgeRequest(h PurgeHeader, filename []byte) purgeRequest {
+func createPurgeRequest(h purgeHeader, filename []byte) purgeRequest {
 	return purgeRequest{
 		logNumber:  int(h.LogNumber),
 		logOffset:  h.LogOffset,
@@ -667,7 +667,7 @@ func (c *Cache) purgeLogReader(purgeLogs []int, out chan<- purgeRequest) (retErr
 		closer := d.AddErr(f.Close)
 		r := bufio.NewReader(f)
 		for {
-			var h PurgeHeader
+			var h purgeHeader
 			if err := binary.Read(r, binary.LittleEndian, &h); err != nil {
 				if err == io.EOF {
 					break
@@ -678,7 +678,7 @@ func (c *Cache) purgeLogReader(purgeLogs []int, out chan<- purgeRequest) (retErr
 			if _, err := io.ReadFull(r, filename); err != nil {
 				return err
 			}
-			hash, err := hashForPurging(h.HashedPurgeHeader, filename)
+			hash, err := hashForPurging(h.hashedPurgeHeader, filename)
 			if err != nil {
 				return err
 			}
