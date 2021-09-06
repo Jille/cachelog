@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
