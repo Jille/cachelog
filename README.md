@@ -1,5 +1,7 @@
 # cachelog
 
+[![GoDoc](https://godoc.org/github.com/Jille/cachelog?status.svg)](https://godoc.org/github.com/Jille/cachelog)
+
 Cachelog provides a log structured cache. Put()s are not fsynced to disk actively. The advantage is that they're way faster, the downside is that you might lose cache data. If you want to ensure to never have stale data, you can first call Delete() to clear out a piece of the cache. Delete()s are fsynced to disk in separate log files, but those are tiny writes.
 
 The intended use case is for storing a partial (but correct) cache of file data. Get/Put/Delete all take a filename and an offset to operate on. The filename isn't treated specially so can be any []byte you want. The filename is stored a log in the logs, so using 1MB filenames will use a lot of space.
